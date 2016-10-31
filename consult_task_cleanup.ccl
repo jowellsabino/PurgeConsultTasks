@@ -1,0 +1,203 @@
+/**
+* <strong>Object name</strong>: chb_consult_task_cleanup <br />
+* <strong>Program purpose</strong>: Mark tasks with completed consult orders <br />
+* <strong>Author</strong>: Jowell S. Sabino <br />
+* <strong>SME/Sponsor</strong>: <Stakeholder(s) / Sponsor(s)> <br />
+* <strong>Usage</strong>: Purge consut orders that are "stuck"in Message Center <br />
+* <strong>Notes</strong>: and World Peace(TM) <br />
+*
+* @class chb_js_pending_tasks
+* @constructor
+* @param {vc}  OUTDEV
+* @param {dq8} BEGIN_DT_TM
+* @param {dq8} END_DT_TM
+*/
+ 
+ 
+drop   program chb_consult_tasks_cleanup go
+create program chb_consult_tasks_cleanup
+ 
+prompt
+      "Output to File/Printer/MINE" = "MINE"
+with OUTDEV
+ 
+/**************************************************************
+; INCLUDES AND EXTERNAL LIBRARIES
+**************************************************************/
+/**
+* Example of attribute
+* @attribute includes <add any include files here>
+*/
+;None
+ 
+/**************************************************************
+; RECORD STRUCTURES
+**************************************************************/
+free record consult_tasks
+record consult_tasks (
+	1 consult_task_cnt			= i4
+	1 consult_task_list[*]
+		2 consult_task_id		= f8
+)
+ 
+/**************************************************************
+; DECLARED SUBROUTINES
+**************************************************************/
+declare sub_get_consult_tasks(null)	= i2 with protect
+declare sub_update_consult_tasks(null)	= i2 with protect
+ 
+/**************************************************************
+; CONSTANTS
+**************************************************************/
+/* Prompts */
+declare C_P_OUTDEV    	      = vc  with protect, constant($OUTDEV)
+ 
+ 
+/* Codeset-derived constants */
+declare C_COMPLETED_ORDER_STATUS         = f8 with protect,constant(uar_get_code_by("MEANING",6004,"COMPLETED")) ; 2543
+declare C_DISCONTINUED_ORDER_STATUS      = f8 with protect,constant(uar_get_code_by("MEANING",6004,"DISCONTINUED")) ; 2543
+declare C_COMPLETE_ORDER_TASK_ACTIVITY   = f8 with protect,constant(uar_get_code_by("MEANING",6027,"COMP ORDER")) ; 2698
+declare C_ORDER_TASK_TYPE                = f8 with protect,constant(uar_get_code_by("MEANING",6026,"ORDER")) ; 2672
+declare C_PENDING_TASK_STATUS            = f8 with protect,constant(uar_get_code_by("MEANING",79,"PENDING")) ; 429
+declare C_COMPLETE_TASK_STATUS           = f8 with protect,constant(uar_get_code_by("MEANING",79,"COMPLETE")) ; 419
+ 
+/**************************************************************
+; VARIABLES
+**************************************************************/
+declare stat = i2 with protect,noconstant(0)
+ 
+;/**************************************************************
+; VARIABLE INITIALIZATION
+;**************************************************************/
+ 
+/**************************************************************
+; MAIN PROGRAM AND QUERIES
+**************************************************************/
+set stat =  sub_get_consult_tasks(null)
+ 
+if (stat = 0)
+	call echo("No consult tasks identified")
+else
+	call echo("Consult tasks identified.  Proceeding with update.")
+	set stat = sub_update_consult_tasks(null)
+endif
+ 
+ 
+/**************************************************************
+; FREE RECORD STRUCTURES
+**************************************************************/
+free record consult_tasks
+ 
+/**************************************************************
+; SUBROUTINES
+**************************************************************/
+/**
+* @method sub_get_consult_tasks
+* @param null
+* @return {i2} Success/Fail flag
+*/
+subroutine sub_get_consult_tasks(null)
+ 
+	declare consult_task_cnt	= i4 with protect,noconstant(0)
+ 
+	select into C_P_OUTDEV
+      from task_activity ta,
+           orders o
+      plan ta
+     where ta.task_status_cd =  C_PENDING_TASK_STATUS
+       and ta.task_type_cd =  C_ORDER_TASK_TYPE
+       and ta.task_activity_cd =  C_COMPLETE_ORDER_TASK_ACTIVITY
+       and ta.active_ind = 1
+       ;;; and ta.task_id = 159843170.00
+      join o
+     where o.order_id = ta.order_id
+       and o.order_id > 0
+       and o.active_ind = 1
+       and o.order_status_cd in(C_COMPLETED_ORDER_STATUS,C_DISCONTINUED_ORDER_STATUS)
+  order by ta.task_id
+ 
+ 	head report
+ 
+ 	    /* Initialize counters */
+ 		consult_tasks->consult_task_cnt = consult_task_cnt
+ 
+   	detail
+ 
+	 		/* Allocate consult_task_list record structures as needed, by 10 */
+	 		consult_task_cnt = consult_task_cnt + 1
+	 		if(mod(consult_task_cnt, 10) = 1)
+	 			stat = alterlist(consult_tasks->consult_task_list,consult_task_cnt + 9)
+	 		endif
+ 
+	 		consult_tasks->consult_task_cnt = consult_task_cnt
+	 		consult_tasks->consult_task_list[consult_task_cnt].consult_task_id = ta.task_id
+ 
+ 
+   	foot report
+		/* Recover unused allocation of personnel_task_list */
+		stat = alterlist(consult_tasks->consult_task_list,consult_task_cnt)
+ 
+ 	with nocounter
+ 
+ 	call echorecord(consult_tasks)
+	return(curqual)
+end
+ 
+/**
+* @method sub_update_consult_tasks
+* @param null
+* @return {i2} Success/Fail flag
+*/
+subroutine sub_update_consult_tasks(null)
+ 
+	declare cnt = i4 with protect,noconstant(0)
+ 
+	/* Update task_activity */
+	for (cnt = 1 to consult_tasks->consult_task_cnt)
+ 
+	    call echo(build2("task_id: ",consult_tasks->consult_task_list[cnt].consult_task_id))
+ 
+		update into task_activity
+		   set task_status_cd = C_COMPLETE_TASK_STATUS,
+		       updt_id = 8531805.00,
+		       updt_applctx = 0,
+			   updt_task = 0,
+			   updt_cnt = updt_cnt+1,
+			   updt_dt_tm = cnvtdatetime(curdate,curtime3)
+	     where
+	          task_id = consult_tasks->consult_task_list[cnt].consult_task_id
+ 
+ 
+		if (curqual > 0)
+ 
+			/* Update task_activity_assignment anatomically */
+			update into task_activity_assignment
+			   set task_status_cd = C_COMPLETE_TASK_STATUS,
+		    	   updt_id = 8531805.00,  ;;Jowell
+		     	   updt_applctx = 0,
+				   updt_task = 0,
+				   updt_cnt = updt_cnt+1,
+				   updt_dt_tm = cnvtdatetime(curdate,curtime3)
+	    	where
+	        	   task_id = consult_tasks->consult_task_list[cnt].consult_task_id
+ 
+			if (curqual > 0)
+				commit
+				call echo(build2("Task updated: ",consult_tasks->consult_task_list[cnt].consult_task_id))
+			else
+				rollback
+		    	call echo(build2("Error encountered on task_activity_assignment: ",consult_tasks->consult_task_list[cnt].consult_task_id))
+			endif
+		else
+			rollback
+	    	call echo(build2("Error encountered on task_activity.", consult_tasks->consult_task_list[cnt].consult_task_id))
+		endif
+ 
+	endfor
+	/* Returns the last status */
+	return(cnt)
+end
+ 
+# exit_script
+end
+go
