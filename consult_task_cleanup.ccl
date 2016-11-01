@@ -82,6 +82,8 @@ else
 	set stat = sub_update_consult_tasks(null)
 endif
  
+call echo(build2("reqinfo->updt_id: ",reqinfo->updt_id))
+ 
  
 /**************************************************************
 ; FREE RECORD STRUCTURES
@@ -108,7 +110,7 @@ subroutine sub_get_consult_tasks(null)
        and ta.task_type_cd =  C_ORDER_TASK_TYPE
        and ta.task_activity_cd =  C_COMPLETE_ORDER_TASK_ACTIVITY
        and ta.active_ind = 1
-       ;;; and ta.task_id = 159843170.00
+       and ta.task_id =   170427146.00
       join o
      where o.order_id = ta.order_id
        and o.order_id > 0
@@ -153,49 +155,51 @@ subroutine sub_update_consult_tasks(null)
 	declare cnt = i4 with protect,noconstant(0)
  
 	/* Update task_activity */
-	for (cnt = 1 to consult_tasks->consult_task_cnt)
+	update into task_activity ta,
+			    (dummyt da with seq = value(size(consult_tasks->consult_task_list,5)))		     
+	   	set ta.task_status_cd = C_COMPLETE_TASK_STATUS,
+		   	ta.updt_id = reqinfo->updt_id, ;;8531805.00,
+		   	ta.updt_applctx = 0,
+		   	ta.updt_task = 0,
+			ta.updt_cnt = ta.updt_cnt+1,
+			ta.updt_dt_tm = cnvtdatetime(curdate,curtime3)
+		plan da
+		join ta
+	  	where
+	        ta.task_id = consult_tasks->consult_task_list[da.seq].consult_task_id
  
-	    call echo(build2("task_id: ",consult_tasks->consult_task_list[cnt].consult_task_id))
  
-		update into task_activity
-		   set task_status_cd = C_COMPLETE_TASK_STATUS,
-		       updt_id = 8531805.00,
-		       updt_applctx = 0,
-			   updt_task = 0,
-			   updt_cnt = updt_cnt+1,
-			   updt_dt_tm = cnvtdatetime(curdate,curtime3)
-	     where
-	          task_id = consult_tasks->consult_task_list[cnt].consult_task_id
+	if (curqual > 0)
  
+		/* Update task_activity_assignment anatomically */
+		update into task_activity_assignment taa,
+					(dummyt daa with seq = value(size(consult_tasks->consult_task_list,5)))
+			set taa.task_status_cd = C_COMPLETE_TASK_STATUS,
+		    	taa.updt_id = reqinfo->updt_id,  
+		     	taa.updt_applctx = 0,
+				taa.updt_task = 0,
+				taa.updt_cnt = taa.updt_cnt+1,
+				taa.updt_dt_tm = cnvtdatetime(curdate,curtime3)
+			plan daa
+			join taa
+	    	where
+	        	taa.task_id = consult_tasks->consult_task_list[daa.seq].consult_task_id
  
 		if (curqual > 0)
- 
-			/* Update task_activity_assignment anatomically */
-			update into task_activity_assignment
-			   set task_status_cd = C_COMPLETE_TASK_STATUS,
-		    	   updt_id = 8531805.00,  ;;Jowell
-		     	   updt_applctx = 0,
-				   updt_task = 0,
-				   updt_cnt = updt_cnt+1,
-				   updt_dt_tm = cnvtdatetime(curdate,curtime3)
-	    	where
-	        	   task_id = consult_tasks->consult_task_list[cnt].consult_task_id
- 
-			if (curqual > 0)
 				commit
-				call echo(build2("Task updated: ",consult_tasks->consult_task_list[cnt].consult_task_id))
-			else
-				rollback
-		    	call echo(build2("Error encountered on task_activity_assignment: ",consult_tasks->consult_task_list[cnt].consult_task_id))
-			endif
+				call echo("Task updated.")
 		else
-			rollback
-	    	call echo(build2("Error encountered on task_activity.", consult_tasks->consult_task_list[cnt].consult_task_id))
+				rollback
+		    	call echo("Error encountered on task_activity_assignment.")
 		endif
+	else
+		rollback
+	    call echo("Error encountered on task_activity.")
+	endif
  
-	endfor
+
 	/* Returns the last status */
-	return(cnt)
+	return(curqual)
 end
  
 # exit_script
