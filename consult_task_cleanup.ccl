@@ -1,16 +1,15 @@
 /**
-* <strong>Object name</strong>: chb_consult_task_cleanup <br />
+* <strong>Object name</strong>: chb_consult_tasks_cleanup <br />
 * <strong>Program purpose</strong>: Mark tasks with completed consult orders <br />
 * <strong>Author</strong>: Jowell S. Sabino <br />
-* <strong>SME/Sponsor</strong>: <Stakeholder(s) / Sponsor(s)> <br />
-* <strong>Usage</strong>: Purge consut orders that are "stuck"in Message Center <br />
-* <strong>Notes</strong>: and World Peace(TM) <br />
+* <strong>SME/Sponsor</strong>: ISD CHAMPS Customer Experience <br />
+* <strong>Usage</strong>: Purge consut orders that are "stuck" in Message Center <br />
+* <strong>Notes</strong>: due to Cerner bug <br />
 *
 * @class chb_js_pending_tasks
 * @constructor
 * @param {vc}  OUTDEV
-* @param {dq8} BEGIN_DT_TM
-* @param {dq8} END_DT_TM
+* @param {dq8} PRSNL_ID
 */
  
  
@@ -18,8 +17,9 @@ drop   program chb_consult_tasks_cleanup go
 create program chb_consult_tasks_cleanup
  
 prompt
-      "Output to File/Printer/MINE" = "MINE"
-with OUTDEV
+      "Output to File/Printer/MINE (default = MINE): " = "MINE",
+      "Personnel id to attribute the change (default = 8531805.00 <Jowell>): " = 8531805.00 
+with OUTDEV,PRSNL_ID
  
 /**************************************************************
 ; INCLUDES AND EXTERNAL LIBRARIES
@@ -44,13 +44,14 @@ record consult_tasks (
 ; DECLARED SUBROUTINES
 **************************************************************/
 declare sub_get_consult_tasks(null)	= i2 with protect
-declare sub_update_consult_tasks(null)	= i2 with protect
+declare sub_update_consult_tasks(user_id = f8)	= i2 with protect
  
 /**************************************************************
 ; CONSTANTS
 **************************************************************/
 /* Prompts */
 declare C_P_OUTDEV    	      = vc  with protect, constant($OUTDEV)
+declare C_P_PRSNL_ID   	      = f8  with protect, constant($PRSNL_ID)
  
  
 /* Codeset-derived constants */
@@ -65,10 +66,12 @@ declare C_COMPLETE_TASK_STATUS           = f8 with protect,constant(uar_get_code
 ; VARIABLES
 **************************************************************/
 declare stat = i2 with protect,noconstant(0)
+declare user_id = f8 with protect,noconstant(0)
  
 ;/**************************************************************
 ; VARIABLE INITIALIZATION
 ;**************************************************************/
+
  
 /**************************************************************
 ; MAIN PROGRAM AND QUERIES
@@ -79,10 +82,16 @@ if (stat = 0)
 	call echo("No consult tasks identified")
 else
 	call echo("Consult tasks identified.  Proceeding with update.")
-	set stat = sub_update_consult_tasks(null)
+	if (reqinfo->updt_id > 0)
+		/* Get user_id from request. */
+		set user_id =  reqinfo->updt_id
+	else
+		/* If zero (ran from backend), set to the parameter supplied for PRSNL_ID */
+		set user_id = C_P_PRSNL_ID
+		call echo(build2("Using prompt user_id = ",user_id))
+	endif
+	set stat = sub_update_consult_tasks(user_id)
 endif
- 
-call echo(build2("reqinfo->updt_id: ",reqinfo->updt_id))
  
  
 /**************************************************************
@@ -110,7 +119,6 @@ subroutine sub_get_consult_tasks(null)
        and ta.task_type_cd =  C_ORDER_TASK_TYPE
        and ta.task_activity_cd =  C_COMPLETE_ORDER_TASK_ACTIVITY
        and ta.active_ind = 1
-       and ta.task_id =   170427146.00
       join o
      where o.order_id = ta.order_id
        and o.order_id > 0
@@ -147,18 +155,19 @@ end
  
 /**
 * @method sub_update_consult_tasks
-* @param null
+* @param user_id = f8  User_id to put as updt_id (for auditing)
 * @return {i2} Success/Fail flag
 */
-subroutine sub_update_consult_tasks(null)
+subroutine sub_update_consult_tasks(user_id)
  
 	declare cnt = i4 with protect,noconstant(0)
  
+ 	
 	/* Update task_activity */
 	update into task_activity ta,
 			    (dummyt da with seq = value(size(consult_tasks->consult_task_list,5)))		     
 	   	set ta.task_status_cd = C_COMPLETE_TASK_STATUS,
-		   	ta.updt_id = reqinfo->updt_id, ;;8531805.00,
+		   	ta.updt_id = user_id, 
 		   	ta.updt_applctx = 0,
 		   	ta.updt_task = 0,
 			ta.updt_cnt = ta.updt_cnt+1,
@@ -175,7 +184,7 @@ subroutine sub_update_consult_tasks(null)
 		update into task_activity_assignment taa,
 					(dummyt daa with seq = value(size(consult_tasks->consult_task_list,5)))
 			set taa.task_status_cd = C_COMPLETE_TASK_STATUS,
-		    	taa.updt_id = reqinfo->updt_id,  
+		    	taa.updt_id = user_id,  
 		     	taa.updt_applctx = 0,
 				taa.updt_task = 0,
 				taa.updt_cnt = taa.updt_cnt+1,
