@@ -6,16 +6,15 @@
 * <strong>Usage</strong>: Purge consut orders that are "stuck" in Message Center <br />
 * <strong>Notes</strong>: due to Cerner bug <br />
 *
-* @class chb_js_pending_tasks
+* @class chb_consult_tasks_cleanup
 * @constructor
 * @param {vc}  OUTDEV
-* @param {dq8} PRSNL_ID
 * @param {f8} PRSNL_ID
 */
  
  
-drop   program chb_consult_tasks_cleanup go
-create program chb_consult_tasks_cleanup
+drop   program chb_consult_tasks_cleanup:dba go
+create program chb_consult_tasks_cleanup:dba
  
 prompt
       "Output to File/Printer/MINE (default = MINE): " = "MINE",
